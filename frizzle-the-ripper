@@ -1,0 +1,147 @@
+#!/bin/bash
+
+################################################################################
+#
+# this bash script automates my standard routine for importing Audio-cds.
+# 0: when an Audio-cd is mounted, the Terminal starts and the script can be run.
+# 1: user specifies a directory name at the prompt.
+# 2: audio-cd is copied to the specified directory located in AIFF.
+# 3: the audio-cd is ejected.
+# 3: tracknumbering is adapted to match VLC's sorting algorithm.
+# 4: mp3 versions are transcoded and placed inside a separate directory.
+#
+# copyleft Frizzle january 2013
+#
+# changelog
+#  -october (2012):  
+#	      - removed option -b 320 because -V 0 sets proper constraints
+#             - added -p for error protection (a 16 bit checksum per frame)
+#	      - the directory name is checked for length and existence
+#
+#  -november (2012): 
+#	      - show progress information using rsync instead of cp
+#             - extra version called importwithtracknames.sh 
+#		which prompts for individual tracknames
+#             - drutil eject after copying and user input is finished
+#
+#  -january (2013):  
+#	      - improved documentation
+#
+#  -December (2013) <By Arjan van Lent aka Socialdefect>
+#	      - Dependency check
+#	      - support for Audio-cd and Audio cd directory
+#             - Some error checks
+#  	      - Clean-up aiff files and temp directory when conversion succeeds
+#             - Directory name as input
+#	      - If $mapnaam is empty directory just use it!
+#	      - Display program name and version
+# 
+################################################################################
+APPNAME="frizzle-the-ripper"
+APPVERSION='1.4'
+## Clear terminal
+clear
+echo "	$APPNAME - $APPVERSION" && echo
+##
+DEPENDS="lame rsync"
+
+for i in $DEPENDS ; do
+	if [ -f `which $i` ] ; then
+		echo "Dependency Gevonden:  `which $i`"
+	else
+		echo "Dependency $i werd niet gevonden op uw systeem \
+	Installeer het programma $i en probeer opnieuw."
+	exit 1 
+	fi
+done
+
+sleep 1
+clear
+echo "	$APPNAME - $APPVERSION" && echo
+
+if [ -d /Volumes/Audio-cd ] ; then
+	CD_DIR='/Volumes/Audio-cd'
+elif [ -d /Volumes/Audio\ cd ] ; then
+        CD_DIR='/Volumes/Audio cd'
+fi
+
+if [ ! -d "$CD_DIR" ] ; then
+ echo -e "\nEr is geen volume Audio-cd.\n"
+ echo "Dit betekent:"
+ echo "1) dat u bent vergeten een CD in de drive te stoppen. Sufferd!"
+ echo "2) dat de CD nog niet gemount is, peuter even in je neus, run dan het script nogmaals."
+ echo "of check of het volume zichtbaar is in Finder of op het Bureaublad"
+ echo -e "3) dat de CD niet de default naam Audio-cd heeft.
+Geval 3 ben ik pas 1x tegengekomen, ben iets te lui om het daarvoor op te lossen"
+ echo "Script wordt afgesloten..."
+ exit 1;
+fi
+
+if [ -e $1 ] ; then
+	echo 'Geef een naam op voor de nieuwe map'
+	read -p 'b.v. artiest en eventueel album?: ' mapnaam
+else
+	mapnaam="$1"
+fi
+
+if [ -z "$mapnaam" ]
+ then
+  echo "De opgegeven naam is leeg of bevat alleen spaties."
+  echo "Script wordt afgesloten..."
+  exit 1;
+fi
+
+if [ -d ~/Music/AIFF/"$mapnaam" ] ; then
+	if [ -e ~/Music/AIFF/"$mapnaam" ] ; then
+		echo && echo "$mapnaam bestaat en is leeg..."
+	else
+  		echo "De opgegeven map bestaat al en is niet leeg!"
+  		echo "Script wordt afgesloten..."
+  		exit 1;
+	fi
+fi
+
+mkdir -p ~/Music/AIFF/"$mapnaam"/
+
+rsync -avh --chmod=ugo=rwX --progress "$CD_DIR"/*.aiff ~/Music/AIFF/"$mapnaam"/
+
+if [ $? = 0 ] ; then
+	drutil eject
+else
+	echo && echo 'Error tijdens het kopieren van de ruwe audio bestanden.'
+	echo 'Waarschijnlijk is de CD beveiligd tegen kopieren...'
+	echo
+	exit 1
+fi
+
+cd ~/Music/AIFF/"$mapnaam"
+for i in [1-9][!0-9]*; do
+    mv "$i" 0"$i"; 
+done
+
+for file in ~/Music/AIFF/"$mapnaam"/*.aiff; 
+    do lame --verbose -q 0 -V 0 -p "$file" "${file%.*}".mp3
+	if [ $? != 0 ] ; then
+		echo && echo "Converteren van $i is mislukt!." && echo
+		exit 1
+	else
+		echo && echo 'Conversie Successvol: Verwijder aiff bestand.'
+		rm -v "$i"
+	fi
+done
+
+mkdir -p ~/Music/"$mapnaam"
+mv ~/Music/AIFF/"$mapnaam"/*.mp3 ~/Music/"$mapnaam"/
+
+if [ $? = 0 ] ; then
+	echo 
+	echo "Het importeren en transcoderen van $mapnaam is geslaagd."
+	echo 'Enjoy the music!'
+	rmdir ~/Music/AIFF/"$mapnaam"
+else
+	echo && echo 'Kan de MP3 bestanden niet verplaatsen!, ERROR!'
+	exit 1
+fi
+
+exit 0
+
